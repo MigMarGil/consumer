@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="consumer.png" alt="Consumer Logo" width="400">
+  <img src="CONSUmer.png" alt="Consumer Logo" width="400">
 </div>
 
 # Consumer
