@@ -1,0 +1,20 @@
+# Monte Carlo estimation of pi with 1M samples (deterministic LCG)
+let pi_est = 0
+let seed = 12345
+let inside = 0
+let total = 1000000
+let i = 0
+
+while i < total: {
+  let seed = (seed * 1103515245 + 12345) - 2147483648 * (seed * 1103515245 + 12345) / 2147483648
+  let x = seed / 2147483648
+  let seed = (seed * 1103515245 + 12345) - 2147483648 * (seed * 1103515245 + 12345) / 2147483648
+  let y = seed / 2147483648
+  if x * x + y * y < 1: {
+    let inside = inside + 1
+  }
+  let i = i + 1
+}
+
+let pi_est = 4 * inside / total
+print(pi_est)

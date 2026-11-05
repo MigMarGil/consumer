@@ -1,0 +1,13 @@
+# Leibniz series for pi: sum 4*(-1)^k/(2k+1), 10M iterations
+let pi = 0
+let sign = 1
+let i = 1
+let n = 10000000
+
+while i < n * 2: {
+  let pi = pi + sign * (4 / i)
+  let sign = sign * -1
+  let i = i + 2
+}
+
+print(pi)

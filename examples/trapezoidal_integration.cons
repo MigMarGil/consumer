@@ -1,0 +1,16 @@
+# Integrate f(x) = x^2 from 0 to 1 using the trapezoidal rule, 10M steps
+let a = 0
+let b = 1
+let n = 10000000
+let h = (b - a) / n
+let sum = 0
+let i = 1
+
+while i < n: {
+  let x = a + i * h
+  let sum = sum + x * x
+  let i = i + 1
+}
+
+let result = h * (0 + 1 + 2 * sum) / 2
+print(result)
