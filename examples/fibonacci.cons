@@ -1,0 +1,11 @@
+let a = 0
+let b = 1
+let i = 0
+
+while i < 15: {
+  print(a)
+  let temp = a + b
+  let a = b
+  let b = temp
+  let i = i + 1
+}
