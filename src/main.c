@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     char *source = malloc(size + 1);
-    if (fread(source, 1, size, f) != (size_t)size) { /* ignore */ }
+    if (fread(source, 1, size, f) != (size_t)size) { }
     source[size] = '\0';
     fclose(f);
     lexer_init(source);

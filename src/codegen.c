@@ -10,6 +10,8 @@
 static LLVMContextRef ctx;
 static LLVMModuleRef mod;
 static LLVMBuilderRef builder;
+static LLVMBasicBlockRef entry_bb;
+static LLVMValueRef main_fn;
 static LLVMValueRef *var_allocas;
 static char **var_names;
 static int var_count;
@@ -20,25 +22,43 @@ static LLVMValueRef lookup_var(const char *name) {
     return NULL;
 }
 
-static LLVMValueRef get_or_create_var(const char *name) {
-    LLVMValueRef v = lookup_var(name);
-    if (v) return v;
+static void declare_var(const char *name) {
+    if (lookup_var(name)) return;
+    LLVMBasicBlockRef cur = LLVMGetInsertBlock(builder);
+    LLVMPositionBuilderAtEnd(builder, entry_bb);
     LLVMValueRef alloca = LLVMBuildAlloca(builder, LLVMDoubleTypeInContext(ctx), name);
+    LLVMPositionBuilderAtEnd(builder, cur);
     var_allocas[var_count] = alloca;
     var_names[var_count] = strdup(name);
     var_count++;
-    return alloca;
+}
+
+static LLVMValueRef get_var(const char *name) {
+    LLVMValueRef v = lookup_var(name);
+    if (v) return v;
+    declare_var(name);
+    return lookup_var(name);
+}
+
+static void scan_vars(Node *node) {
+    while (node) {
+        if (node->type == NODE_LET && node->name) declare_var(node->name);
+        if (node->body) scan_vars(node->body);
+        if (node->else_body) scan_vars(node->else_body);
+        if (node->left) scan_vars(node->left);
+        if (node->right) scan_vars(node->right);
+        node = node->next;
+    }
 }
 
 static LLVMValueRef codegen_expr(Node *node) {
     if (!node) return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
     switch (node->type) {
-        case NODE_NUMBER:
-            return LLVMConstReal(LLVMDoubleTypeInContext(ctx), node->num_val);
+        case NODE_NUMBER: return LLVMConstReal(LLVMDoubleTypeInContext(ctx), node->num_val);
         case NODE_VAR: {
-            LLVMValueRef alloca = lookup_var(node->name);
-            if (!alloca) return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
-            return LLVMBuildLoad2(builder, LLVMDoubleTypeInContext(ctx), alloca, node->name);
+            LLVMValueRef a = lookup_var(node->name);
+            if (!a) return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
+            return LLVMBuildLoad2(builder, LLVMDoubleTypeInContext(ctx), a, node->name);
         }
         case NODE_BINARY: {
             LLVMValueRef l = codegen_expr(node->left);
@@ -48,133 +68,144 @@ static LLVMValueRef codegen_expr(Node *node) {
                 case TOK_MINUS: return LLVMBuildFSub(builder, l, r, "sub");
                 case TOK_STAR:  return LLVMBuildFMul(builder, l, r, "mul");
                 case TOK_SLASH: return LLVMBuildFDiv(builder, l, r, "div");
+                case TOK_PERCENT: {
+                    LLVMValueRef fmod_fn = LLVMGetNamedFunction(mod, "fmod");
+                    if (!fmod_fn) {
+                        LLVMTypeRef ps[] = { LLVMDoubleTypeInContext(ctx), LLVMDoubleTypeInContext(ctx) };
+                        fmod_fn = LLVMAddFunction(mod, "fmod", LLVMFunctionType(LLVMDoubleTypeInContext(ctx), ps, 2, 0));
+                    }
+                    LLVMValueRef args[] = { l, r };
+                    return LLVMBuildCall2(builder, LLVMGlobalGetValueType(fmod_fn), fmod_fn, args, 2, "mod");
+                }
                 case TOK_LT: {
                     LLVMValueRef c = LLVMBuildFCmp(builder, LLVMRealOLT, l, r, "lt");
-                    return LLVMBuildSelect(builder, c,
-                        LLVMConstReal(LLVMDoubleTypeInContext(ctx), 1.0),
-                        LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0), "ltsel");
+                    return LLVMBuildSelect(builder, c, LLVMConstReal(LLVMDoubleTypeInContext(ctx),1.0), LLVMConstReal(LLVMDoubleTypeInContext(ctx),0.0), "ltsel");
                 }
                 case TOK_GT: {
                     LLVMValueRef c = LLVMBuildFCmp(builder, LLVMRealOGT, l, r, "gt");
-                    return LLVMBuildSelect(builder, c,
-                        LLVMConstReal(LLVMDoubleTypeInContext(ctx), 1.0),
-                        LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0), "gtsel");
+                    return LLVMBuildSelect(builder, c, LLVMConstReal(LLVMDoubleTypeInContext(ctx),1.0), LLVMConstReal(LLVMDoubleTypeInContext(ctx),0.0), "gtsel");
+                }
+                case TOK_LE: {
+                    LLVMValueRef c = LLVMBuildFCmp(builder, LLVMRealOLE, l, r, "le");
+                    return LLVMBuildSelect(builder, c, LLVMConstReal(LLVMDoubleTypeInContext(ctx),1.0), LLVMConstReal(LLVMDoubleTypeInContext(ctx),0.0), "lesel");
+                }
+                case TOK_GE: {
+                    LLVMValueRef c = LLVMBuildFCmp(builder, LLVMRealOGE, l, r, "ge");
+                    return LLVMBuildSelect(builder, c, LLVMConstReal(LLVMDoubleTypeInContext(ctx),1.0), LLVMConstReal(LLVMDoubleTypeInContext(ctx),0.0), "gesel");
                 }
             }
             return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
         }
-        default:
-            return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
+        default: return LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
     }
 }
 
-static void codegen_stmt(Node *node) {
-    while (node) {
-        switch (node->type) {
-            case NODE_BLOCK:
-                codegen_stmt(node->body);
-                break;
-            case NODE_LET: {
-                LLVMValueRef val = codegen_expr(node->left);
-                LLVMValueRef alloca = get_or_create_var(node->name);
-                LLVMBuildStore(builder, val, alloca);
-                break;
-            }
-            case NODE_PRINT: {
-                LLVMValueRef v = codegen_expr(node->left);
-                LLVMValueRef printf_fn = LLVMGetNamedFunction(mod, "printf");
-                if (!printf_fn) {
-                    LLVMTypeRef params[] = { LLVMPointerType(LLVMInt8TypeInContext(ctx), 0) };
-                    LLVMTypeRef ft = LLVMFunctionType(LLVMInt32TypeInContext(ctx), params, 1, 1);
-                    printf_fn = LLVMAddFunction(mod, "printf", ft);
-                }
-                LLVMValueRef fmt = LLVMBuildGlobalStringPtr(builder, "%g\n", "fmt");
-                LLVMValueRef args[] = { fmt, v };
-                LLVMBuildCall2(builder, LLVMGlobalGetValueType(printf_fn), printf_fn, args, 2, "");
-                break;
-            }
-            case NODE_WHILE: {
-                LLVMValueRef parent = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
-                LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlockInContext(ctx, parent, "wcond");
-                LLVMBasicBlockRef body_bb = LLVMAppendBasicBlockInContext(ctx, parent, "wbody");
-                LLVMBasicBlockRef end_bb  = LLVMAppendBasicBlockInContext(ctx, parent, "wend");
-                LLVMBuildBr(builder, cond_bb);
-                LLVMPositionBuilderAtEnd(builder, cond_bb);
-                LLVMValueRef cond = codegen_expr(node->left);
-                LLVMValueRef zero = LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
-                LLVMValueRef cmp = LLVMBuildFCmp(builder, LLVMRealONE, cond, zero, "wcmp");
-                LLVMBuildCondBr(builder, cmp, body_bb, end_bb);
-                LLVMPositionBuilderAtEnd(builder, body_bb);
-                codegen_stmt(node->body);
-                LLVMBuildBr(builder, cond_bb);
-                LLVMPositionBuilderAtEnd(builder, end_bb);
-                break;
-            }
-            case NODE_IF: {
-                LLVMValueRef parent = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
-                LLVMValueRef cond = codegen_expr(node->left);
-                LLVMValueRef zero = LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
-                LLVMValueRef cmp = LLVMBuildFCmp(builder, LLVMRealONE, cond, zero, "ifcmp");
-                LLVMBasicBlockRef then_bb = LLVMAppendBasicBlockInContext(ctx, parent, "then");
-                LLVMBasicBlockRef else_bb = LLVMAppendBasicBlockInContext(ctx, parent, "else");
-                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(ctx, parent, "merge");
-                LLVMBuildCondBr(builder, cmp, then_bb, else_bb);
-                LLVMPositionBuilderAtEnd(builder, then_bb);
-                codegen_stmt(node->body);
-                LLVMBuildBr(builder, merge_bb);
-                LLVMPositionBuilderAtEnd(builder, else_bb);
-                if (node->else_body) codegen_stmt(node->else_body);
-                LLVMBuildBr(builder, merge_bb);
-                LLVMPositionBuilderAtEnd(builder, merge_bb);
-                break;
-            }
-            case NODE_RETURN: {
-                LLVMValueRef v = codegen_expr(node->left);
-                LLVMBuildRet(builder, v);
-                return;
-            }
-            default:
-                codegen_expr(node);
-                break;
-        }
-        node = node->next;
+static LLVMBasicBlockRef codegen_stmt(Node *node, LLVMBasicBlockRef cur);
+
+static LLVMBasicBlockRef codegen_block(Node *block, LLVMBasicBlockRef cur) {
+    if (!block) return cur;
+    for (Node *s = block->body; s; s = s->next) {
+        LLVMPositionBuilderAtEnd(builder, cur);
+        cur = codegen_stmt(s, cur);
     }
+    return cur;
+}
+
+static LLVMBasicBlockRef codegen_stmt(Node *node, LLVMBasicBlockRef cur) {
+    if (!node) return cur;
+    switch (node->type) {
+        case NODE_BLOCK:
+            return codegen_block(node, cur);
+        case NODE_LET: {
+            LLVMValueRef val = codegen_expr(node->left);
+            LLVMBuildStore(builder, val, get_var(node->name));
+            break;
+        }
+        case NODE_PRINT: {
+            LLVMValueRef v = codegen_expr(node->left);
+            LLVMValueRef p = LLVMGetNamedFunction(mod, "printf");
+            if (!p) {
+                LLVMTypeRef ps[] = { LLVMPointerType(LLVMInt8TypeInContext(ctx),0) };
+                p = LLVMAddFunction(mod, "printf", LLVMFunctionType(LLVMInt32TypeInContext(ctx), ps, 1, 1));
+            }
+            LLVMValueRef fmt = LLVMBuildGlobalStringPtr(builder, "%g\n", "fmt");
+            LLVMValueRef args[] = { fmt, v };
+            LLVMBuildCall2(builder, LLVMGlobalGetValueType(p), p, args, 2, "");
+            break;
+        }
+        case NODE_WHILE: {
+            LLVMBasicBlockRef cb = LLVMAppendBasicBlockInContext(ctx, main_fn, "wcond");
+            LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(ctx, main_fn, "wbody");
+            LLVMBasicBlockRef eb = LLVMAppendBasicBlockInContext(ctx, main_fn, "wend");
+            LLVMBuildBr(builder, cb);
+            LLVMPositionBuilderAtEnd(builder, cb);
+            LLVMValueRef cond = codegen_expr(node->left);
+            LLVMValueRef z = LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
+            LLVMValueRef cmp = LLVMBuildFCmp(builder, LLVMRealONE, cond, z, "wcmp");
+            LLVMBuildCondBr(builder, cmp, bb, eb);
+            LLVMPositionBuilderAtEnd(builder, bb);
+            LLVMBasicBlockRef body_end = codegen_block(node->body, bb);
+            LLVMPositionBuilderAtEnd(builder, body_end);
+            if (!LLVMGetBasicBlockTerminator(body_end))
+                LLVMBuildBr(builder, cb);
+            LLVMPositionBuilderAtEnd(builder, eb);
+            return eb;
+        }
+        case NODE_IF: {
+            LLVMValueRef cond = codegen_expr(node->left);
+            LLVMValueRef z = LLVMConstReal(LLVMDoubleTypeInContext(ctx), 0.0);
+            LLVMValueRef cmp = LLVMBuildFCmp(builder, LLVMRealONE, cond, z, "ifcmp");
+            LLVMBasicBlockRef tb = LLVMAppendBasicBlockInContext(ctx, main_fn, "then");
+            LLVMBasicBlockRef eb2 = LLVMAppendBasicBlockInContext(ctx, main_fn, "else");
+            LLVMBasicBlockRef mb = LLVMAppendBasicBlockInContext(ctx, main_fn, "merge");
+            LLVMBuildCondBr(builder, cmp, tb, eb2);
+            LLVMPositionBuilderAtEnd(builder, tb);
+            LLVMBasicBlockRef then_end = codegen_block(node->body, tb);
+            LLVMPositionBuilderAtEnd(builder, then_end);
+            if (!LLVMGetBasicBlockTerminator(then_end))
+                LLVMBuildBr(builder, mb);
+            LLVMPositionBuilderAtEnd(builder, eb2);
+            LLVMBasicBlockRef else_end = eb2;
+            if (node->else_body)
+                else_end = codegen_block(node->else_body, eb2);
+            LLVMPositionBuilderAtEnd(builder, else_end);
+            if (!LLVMGetBasicBlockTerminator(else_end))
+                LLVMBuildBr(builder, mb);
+            LLVMPositionBuilderAtEnd(builder, mb);
+            return mb;
+        }
+        default:
+            codegen_expr(node);
+            break;
+    }
+    return LLVMGetInsertBlock(builder);
 }
 
 void codegen(Node *program) {
     ctx = LLVMContextCreate();
     mod = LLVMModuleCreateWithNameInContext("consumer", ctx);
     builder = LLVMCreateBuilderInContext(ctx);
-
-    LLVMTypeRef ft = LLVMFunctionType(LLVMVoidTypeInContext(ctx), NULL, 0, 0);
-    LLVMValueRef main_fn = LLVMAddFunction(mod, "main", ft);
-    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx, main_fn, "entry");
-    LLVMPositionBuilderAtEnd(builder, entry);
-
+    main_fn = LLVMAddFunction(mod, "main", LLVMFunctionType(LLVMVoidTypeInContext(ctx), NULL, 0, 0));
+    entry_bb = LLVMAppendBasicBlockInContext(ctx, main_fn, "entry");
+    LLVMPositionBuilderAtEnd(builder, entry_bb);
     var_allocas = calloc(1024, sizeof(LLVMValueRef));
     var_names = calloc(1024, sizeof(char*));
     var_count = 0;
-
-    codegen_stmt(program->body);
-    LLVMBuildRetVoid(builder);
-
+    scan_vars(program);
+    LLVMBasicBlockRef last = codegen_block(program, entry_bb);
+    LLVMPositionBuilderAtEnd(builder, last);
+    if (!LLVMGetBasicBlockTerminator(last))
+        LLVMBuildRetVoid(builder);
     LLVMVerifyModule(mod, LLVMAbortProcessAction, NULL);
-
-    LLVMExecutionEngineRef engine;
-    char *error = NULL;
+    LLVMExecutionEngineRef engine; char *error = NULL;
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
     LLVMInitializeNativeAsmParser();
-
     if (LLVMCreateExecutionEngineForModule(&engine, mod, &error) != 0) {
-        fprintf(stderr, "JIT error: %s\n", error);
-        return;
+        fprintf(stderr, "JIT error: %s\n", error); return;
     }
-
     uint64_t addr = LLVMGetFunctionAddress(engine, "main");
-    void (*fn)(void) = (void (*)(void))addr;
-    fn();
-
+    ((void (*)(void))addr)();
     LLVMDisposeExecutionEngine(engine);
     LLVMDisposeBuilder(builder);
     LLVMContextDispose(ctx);

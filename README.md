@@ -25,6 +25,9 @@ Then:
 ## Run
 
     ./consumer examples/fibonacci.cons
+    ./consumer examples/prime_sieve.cons
+    ./consumer examples/monte_carlo_pi.cons
+    ./consumer examples/trapezoidal_integration.cons
 
 ## Syntax
 
@@ -43,6 +46,8 @@ Then:
       print(0)
     }
 
+Operators: `+ - * / %`, comparisons `< > <= >=`, parentheses.
+
 ## Benchmark
 
     cd benchmarks
@@ -60,9 +65,16 @@ Leibniz series for pi, 10 million iterations:
 
 Consumer is **41x faster than Python** and within 3.5x of optimized C.
 
+## Examples
+
+- `fibonacci.cons` — first 15 Fibonacci numbers
+- `prime_sieve.cons` — count primes below 1000
+- `monte_carlo_pi.cons` — estimate pi with 1M samples
+- `trapezoidal_integration.cons` — integrate x^2 from 0 to 1
+
 ## Status
 
-v0.1. Not a general-purpose language. Numbers and control flow only. Strings, functions, and arrays are on the roadmap.
+v0.1. Numbers and control flow only. Strings, functions, and arrays are on the roadmap.
 
 ## License
 

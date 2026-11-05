@@ -1,12 +1,10 @@
-# Count primes below 100000 using trial division
 let count = 0
 let n = 2
-
-while n < 100000: {
-  let is_prime = 1
+while n < 1000: {
   let d = 2
+  let is_prime = 1
   while d * d <= n: {
-    let rem = n - (n / d) * d
+    let rem = n % d
     if rem < 1: {
       let is_prime = 0
     }
@@ -15,5 +13,4 @@ while n < 100000: {
   let count = count + is_prime
   let n = n + 1
 }
-
 print(count)
