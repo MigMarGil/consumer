@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="CONSUmer.png" alt="Consumer Logo" width="400">
+</div>
+
 # Consumer
 
 **Write like Python. Run like C.**
