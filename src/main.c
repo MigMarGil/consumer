@@ -17,7 +17,6 @@ int main(int argc, char **argv) {
     fclose(f);
     lexer_init(source);
     Node *program = parse_program();
-    fprintf(stderr, "AST: %p\n", (void*)program->body);
     codegen(program);
     free(source);
     return 0;

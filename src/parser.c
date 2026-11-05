@@ -21,6 +21,15 @@ static Node *parse_primary(void) {
         advance();
         return n;
     }
+    if (current.type == TOK_MINUS) {
+        advance();
+        Node *n = new_node(NODE_BINARY);
+        n->op = TOK_MINUS;
+        n->left = new_node(NODE_NUMBER);
+        n->left->num_val = 0.0;
+        n->right = parse_primary();
+        return n;
+    }
     if (current.type == TOK_IDENT) {
         Node *n = new_node(NODE_VAR);
         n->name = strdup(current.str_val);

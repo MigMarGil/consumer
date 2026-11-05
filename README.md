@@ -6,7 +6,7 @@ Consumer is a numerical scripting language that compiles to native code via LLVM
 
 ## Why
 
-Python is great for numerical scripts until it isn't. A Monte Carlo simulation that takes 40 seconds in Python takes milliseconds when JIT-compiled. Consumer gives you Python-like syntax with C-like speed, without rewriting your script in C.
+Python is great for numerical scripts until it isn't. A loop that takes 1.7 seconds in Python takes 42 milliseconds when JIT-compiled. Consumer gives you Python-like syntax with near-C speed, without rewriting your script in C.
 
 ## Install
 
@@ -48,13 +48,17 @@ Then:
     cd benchmarks
     ./bench.sh
 
-| Calculation | Time |
-|---|---|
-| Leibniz pi, 10M iterations (Python 3.12) | ~1.8 s |
-| **Leibniz pi, 10M iterations (Consumer)** | **~15 ms** |
-| Leibniz pi, 10M iterations (C -O2) | ~12 ms |
+Leibniz series for pi, 10 million iterations:
 
-*Numbers on a 2024 laptop. Run `bench.sh` to reproduce on yours.*
+| Language | Time |
+|---|---|
+| Python 3.12 | 1741 ms |
+| **Consumer (JIT)** | **42 ms** |
+| C (-O2) | 12 ms |
+
+*Measured on a 2024 laptop running WSL2. Run `bench.sh` to reproduce on yours.*
+
+Consumer is **41x faster than Python** and within 3.5x of optimized C.
 
 ## Status
 
